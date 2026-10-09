@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <title>MDM 管理コンソール</title>
+  <link rel="stylesheet" href="/admin.css">
+  <script src="/admin.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div>
+      <p class="eyebrow">mdmd / management console</p>
+      <h1>MDM 管理コンソール</h1>
+      <p class="subtitle">端末の登録、コマンド配信、ADE・アプリ・DDMの状態を確認します。</p>
+    </div>
+    <div class="auth-box">
+      <label for="api-token">管理APIトークン</label>
+      <div class="inline-form">
+        <input id="api-token" type="password" autocomplete="off" spellcheck="false" placeholder="Bearer トークンを入力">
+        <button id="connect-button" class="primary" type="button">接続</button>
+      </div>
+      <p class="hint">トークンはこのページを開いている間だけメモリに保持します。ブラウザには保存しません。</p>
+    </div>
+  </header>
+
+  <main>
+    <div id="global-status" class="status" role="status" aria-live="polite">トークンを入力して接続してください。</div>
+
+    <section class="panel" aria-labelledby="overview-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">overview</p>
+          <h2 id="overview-heading">接続状況</h2>
+        </div>
+        <div class="toolbar">
+          <button id="refresh-all" type="button">全体を更新</button>
+          <button id="integration-health" type="button">Apple連携を確認</button>
+        </div>
+      </div>
+      <div id="integration-result" class="compact-result" aria-live="polite">未確認</div>
+    </section>
+
+    <section class="panel" aria-labelledby="devices-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">enrollment</p>
+          <h2 id="devices-heading">端末とEnrollment</h2>
+        </div>
+        <div class="toolbar">
+          <button id="new-enrollment" class="primary" type="button">Enrollmentプロファイルを作成</button>
+          <button id="refresh-devices" type="button">端末一覧を更新</button>
+        </div>
+      </div>
+      <p class="hint">端末名が未取得の場合はEnrollment IDを表示します。プロファイル作成時はXMLをダウンロードできます。</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>端末名 / ID</th><th>シリアル</th><th>UDID</th><th>状態</th><th>OS</th><th>操作</th></tr>
+          </thead>
+          <tbody id="device-list"><tr><td colspan="6" class="empty">まだ読み込まれていません。</td></tr></tbody>
+        </table>
+      </div>
+      <p id="device-cursor" class="hint"></p>
+      <div id="profile-result" class="compact-result" aria-live="polite"></div>
+    </section>
+
+    <section class="panel" aria-labelledby="selected-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">device operations</p>
+          <h2 id="selected-heading">選択中の端末</h2>
+        </div>
+        <label class="select-label" for="device-select">対象端末
+          <select id="device-select"><option value="">端末を選択</option></select>
+        </label>
+      </div>
+      <div id="selected-device" class="selected-device empty">端末を選択してください。</div>
+
+      <details open>
+        <summary>情報とアプリ</summary>
+        <div class="operation-grid">
+          <article class="operation-card">
+            <h3>Device Information</h3>
+            <p class="hint">送信受付、ACK、実機観測を別々に表示します。</p>
+            <div class="button-row">
+              <button id="device-info" type="button">端末情報を取得</button>
+              <button id="device-configured" type="button">設定完了を通知</button>
+            </div>
+            <p class="hint">先にDevice Informationで監視状態を確認し、ADEのAwaitingConfigurationが解消されたことを確認してから通知してください。</p>
+          </article>
+          <article class="operation-card">
+            <h3>アプリ一覧</h3>
+            <div class="button-row">
+              <button id="installed-apps" type="button">インストール済み</button>
+              <button id="managed-apps" type="button">管理対象</button>
+            </div>
+            <p class="hint">大きな一覧は端末側の応答をコマンド結果で確認します。</p>
+          </article>
+          <article class="operation-card">
+            <h3>App Storeアプリをインストール</h3>
+            <label for="app-store-id">iTunes Store ID</label>
+            <input id="app-store-id" inputmode="numeric" placeholder="例: 361285480">
+            <label for="purchase-method">購入方法</label>
+            <select id="purchase-method"><option value="1">VPPデバイス割当（対応）</option></select>
+            <button id="install-app-store" type="button">インストールを受付</button>
+          </article>
+          <article class="operation-card">
+            <h3>Enterpriseアプリをインストール</h3>
+            <label for="manifest-url">HTTPS Manifest URL</label>
+            <input id="manifest-url" type="url" placeholder="https://example.invalid/app.plist">
+            <button id="install-enterprise" type="button">インストールを受付</button>
+          </article>
+          <article class="operation-card">
+            <h3>アプリを削除</h3>
+            <label for="remove-app-id">Bundle ID</label>
+            <input id="remove-app-id" placeholder="com.example.app">
+            <button id="remove-app" type="button">削除を受付</button>
+          </article>
+        </div>
+      </details>
+
+      <details>
+        <summary>キオスク、OS更新、ロック</summary>
+        <div class="operation-grid">
+          <article class="operation-card">
+            <h3>キオスク（App Lock）</h3>
+            <label for="kiosk-bundle-id">Bundle ID</label>
+            <input id="kiosk-bundle-id" placeholder="com.example.kiosk">
+            <div class="button-row">
+              <button id="kiosk-apply" class="primary" type="button">適用</button>
+              <button id="kiosk-release" type="button">解除</button>
+            </div>
+            <p class="hint">監視対象の証拠がない端末ではサーバー側で拒否されます。</p>
+          </article>
+          <article class="operation-card">
+            <h3>OS更新</h3>
+            <div class="button-row">
+              <button id="os-available" type="button">利用可能な更新</button>
+              <button id="os-status" type="button">更新状態</button>
+            </div>
+            <label for="os-product-key">ProductKey（任意）</label>
+            <input id="os-product-key" placeholder="未指定ならProductVersionを使用">
+            <label for="os-product-version">ProductVersion（任意）</label>
+            <input id="os-product-version" placeholder="例: 17.7.1">
+            <label for="os-install-action">InstallAction</label>
+            <select id="os-install-action">
+              <option value="Default">Default</option>
+              <option value="DownloadOnly">DownloadOnly</option>
+              <option value="InstallASAP">InstallASAP</option>
+            </select>
+            <button id="os-schedule" class="danger-soft" type="button">更新を予約</button>
+            <p class="hint">OS更新の旧来コマンドはOSバージョンにより非推奨です。DDMの結果も確認してください。</p>
+          </article>
+          <article class="operation-card">
+            <h3>端末ロック</h3>
+            <label for="lock-message">ロック画面メッセージ（任意）</label>
+            <input id="lock-message" maxlength="512">
+            <label for="lock-phone">電話番号（任意）</label>
+            <input id="lock-phone" maxlength="128">
+            <label for="lock-pin">Find My PIN（このサーバーでは未対応）</label>
+            <input id="lock-pin" inputmode="numeric" maxlength="6" autocomplete="off" disabled title="現在のサーバー操作ポリシーではPIN指定を受け付けません。">
+            <button id="device-lock" type="button">ロックを受付</button>
+          </article>
+        </div>
+      </details>
+
+      <details>
+        <summary>消去（2段階確認）</summary>
+        <div class="warning-box">
+          <strong>消去は元に戻せません。</strong>
+          <p>先に対象端末の消去意図を作成し、表示されたシリアル番号を入力してから実行します。確認情報とトークンはこのページのメモリにだけ保持します。</p>
+        </div>
+        <div class="button-row">
+          <button id="erase-prepare" class="danger" type="button">消去意図を作成</button>
+        </div>
+        <div id="erase-intent" class="intent-box empty">まだ消去意図はありません。</div>
+        <div class="inline-form">
+          <label for="erase-confirm-serial">表示されたシリアル番号</label>
+          <input id="erase-confirm-serial" autocomplete="off">
+          <button id="erase-execute" class="danger" type="button" disabled>消去を実行</button>
+        </div>
+      </details>
+
+      <details>
+        <summary>コマンド状況</summary>
+        <p class="hint">「受付済み」は管理APIが受理した状態、「ACK済み」は端末のMDM応答、「実機反映確認」は観測データで照合できた状態です。ACKだけではインストール完了とは扱いません。</p>
+        <div id="command-activity" class="activity-list"><p class="empty">コマンドはまだありません。</p></div>
+        <div class="button-row">
+          <button id="command-history-more" type="button" disabled>さらに履歴を取得</button>
+          <span id="command-history-cursor" class="hint"></span>
+        </div>
+      </details>
+    </section>
+
+    <section class="panel" aria-labelledby="ade-heading">
+      <div class="section-heading">
+        <div><p class="eyebrow">automated device enrollment</p><h2 id="ade-heading">ADEデバイスとプロファイル</h2></div>
+        <div class="toolbar"><button id="ade-refresh" type="button">ADE一覧</button><button id="ade-sync" type="button">Appleと同期</button></div>
+      </div>
+      <div id="ade-result" class="compact-result"></div>
+      <div id="ade-device-list" class="check-list"><p class="empty">まだ取得していません。</p></div>
+      <div class="operation-grid">
+        <article class="operation-card">
+          <h3>ADEプロファイルを定義</h3>
+          <label for="ade-profile-json">プロファイルJSON</label>
+          <textarea id="ade-profile-json" rows="8" spellcheck="false" placeholder='{"configuration_web_url":"https://..."}'></textarea>
+          <button id="ade-profile-create" type="button">プロファイルを登録</button>
+        </article>
+        <article class="operation-card">
+          <h3>ADE割当</h3>
+          <label for="ade-profile-uuid">Profile UUID</label>
+          <input id="ade-profile-uuid" autocomplete="off">
+          <label for="ade-serials">シリアル番号（改行またはカンマ区切り）</label>
+          <textarea id="ade-serials" rows="4"></textarea>
+          <div class="button-row"><button id="ade-assign" class="primary" type="button">割当</button><button id="ade-unassign" type="button">割当解除</button></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="vpp-heading">
+      <div class="section-heading"><div><p class="eyebrow">apps &amp; books</p><h2 id="vpp-heading">VPPデバイスライセンス</h2></div></div>
+      <div class="operation-grid compact-grid">
+        <article class="operation-card">
+          <label for="vpp-adam-id">adamId</label>
+          <input id="vpp-adam-id" inputmode="numeric" autocomplete="off">
+          <label for="vpp-serial">シリアル番号</label>
+          <input id="vpp-serial" autocomplete="off">
+          <div class="button-row"><button id="vpp-assign" class="primary" type="button">割当</button><button id="vpp-unassign" type="button">解除</button></div>
+        </article>
+        <article class="operation-card">
+          <label for="vpp-status-adam-id">statusを確認するadamId</label>
+          <input id="vpp-status-adam-id" inputmode="numeric">
+          <label for="vpp-status-serial">シリアル番号</label>
+          <input id="vpp-status-serial">
+          <button id="vpp-status" type="button">状態を取得</button>
+        </article>
+      </div>
+      <div id="vpp-result" class="compact-result"></div>
+    </section>
+
+    <section class="panel" aria-labelledby="ddm-heading">
+      <div class="section-heading"><div><p class="eyebrow">declarative device management</p><h2 id="ddm-heading">DDM</h2></div><button id="ddm-refresh" type="button">宣言一覧を更新</button></div>
+      <div id="ddm-list" class="declaration-list"><p class="empty">まだ取得していません。</p></div>
+      <div class="button-row"><button id="ddm-enable" class="primary" type="button">選択端末でDDMを有効化</button><button id="ddm-status" type="button">選択端末のstatus</button></div>
+      <div id="ddm-result" class="compact-result"></div>
+    </section>
+
+    <section class="panel" aria-labelledby="records-heading">
+      <div class="section-heading"><div><p class="eyebrow">audit &amp; evidence</p><h2 id="records-heading">監査と実機観測</h2></div><div class="toolbar"><button id="refresh-observations" type="button">観測を更新</button><button id="refresh-audit" type="button">監査を更新</button></div></div>
+      <div class="record-grid">
+        <article><h3>実機観測</h3><pre id="observations-result" class="json-result">未取得</pre></article>
+        <article><h3>監査ログ</h3><pre id="audit-result" class="json-result">未取得</pre></article>
+      </div>
+    </section>
+  </main>
+  <footer class="site-footer"><span>MIT License / mdmd</span><span>実機での適用結果は監査・観測で確認してください。</span></footer>
+</body>
+</html>

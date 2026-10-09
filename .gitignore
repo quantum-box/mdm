@@ -1,0 +1,9 @@
+/target/
+/data/
+*.sqlite*
+*.db*
+*.pem
+*.key
+*.mobileconfig
+.env
+.DS_Store
