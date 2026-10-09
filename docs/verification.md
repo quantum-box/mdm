@@ -18,14 +18,26 @@ evidence, not Apple-device acceptance or a production release.
 | DDM/restore CLI smoke | Actual daemon and CLI: put/list/unassign/delete declarations; schema-2 snapshot restored to a new private path, preserved deleted revision, integrity checked |
 | Enrollment failure smoke | Failed HTTP enrollment removes its own partial output; existing output files are preserved |
 
+## Remote CI evidence
+
+GitHub Actions run [`37975531705`](https://github.com/quantum-box/mdm/actions/runs/37975531705) for commit `ce6fcd0` completed with status **Success**. Its [`rust` job](https://github.com/quantum-box/mdm/actions/runs/37975531705/job/113972753502) passed all steps defined in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
+
+- Node.js syntax and console regression tests (`node --check` and `node --test`)
+- Rust formatting (`cargo fmt --all -- --check`)
+- Full locked workspace tests (`cargo test --workspace --locked`)
+- Clippy with warnings denied (`cargo clippy --workspace --all-targets --locked -- -D warnings`)
+- Linux release build (`cargo build --release -p mdmd --locked`)
+
+The run provides the Linux full-suite, formatting, Clippy, and release-build evidence for this revision. It does not provide Apple-device or APNs acceptance evidence.
+
 On this host, Cargo used `OPENSSL_DIR=/opt/homebrew/opt/openssl`. No local
 release build was performed. The CI workflow includes a Linux release build,
-but remote CI has not been run for this work.
+which passed in the remote run above.
 
 Local follow-up tests were scoped to the changed core/protocol, Apple adapter,
 device operations, HTTP and DDM/restore paths. Unchanged configuration, SCEP, and native TLS suites were not repeated;
-their results belong to the initial baseline. The current complete workspace
-suite and Linux release build remain remote CI acceptance work.
+their results belong to the initial baseline. The complete workspace suite and
+Linux release build are covered by the successful remote run above.
 
 The automated tests cover protocol fixtures, enrollment/command transitions,
 transaction rollback, exact SCEP replay, command idempotency, restart and lease
