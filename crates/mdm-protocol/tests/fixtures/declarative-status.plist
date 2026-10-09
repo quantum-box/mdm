@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>MessageType</key>
+  <string>DeclarativeManagement</string>
+  <key>Endpoint</key>
+  <string>status</string>
+  <key>UDID</key>
+  <string>00000000-0000-0000-0000-000000000001</string>
+  <key>Data</key>
+  <data>eyJTdGF0dXNJdGVtcyI6eyJkZXZpY2UuaWRlbnRpZmllci51ZGlkIjoiMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAxIn0sIkVycm9ycyI6W10sIkZ1bGxSZXBvcnQiOnRydWV9</data>
+</dict>
+</plist>

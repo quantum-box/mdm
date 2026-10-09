@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node for the console regression tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check management console
+        run: |
+          node --check crates/mdmd/src/admin/admin.js
+          node --test crates/mdmd/tests/admin-ui.mjs
+
+      - name: Install OpenSSL build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+
+      - name: Install Rust toolchain
+        run: |
+          rustup show active-toolchain
+          rustup component add rustfmt clippy
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run workspace tests
+        run: cargo test --workspace --locked
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Build mdmd release binary
+        run: cargo build --release -p mdmd --locked
