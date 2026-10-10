@@ -123,19 +123,20 @@ async fn scheduled_invocations_are_bounded_and_preserve_provider_results() {
         assert!(result.notification_attempted);
         assert_eq!(store.jobs.lock().unwrap().len(), remaining);
     }
-    let results = store.completed.lock().unwrap();
-    assert_eq!(
-        results.iter().map(|r| r.state.as_str()).collect::<Vec<_>>(),
-        ["accepted", "retry", "rejected", "retry"]
-    );
-    assert_eq!(results[0].apns_id.as_deref(), Some("apple-request"));
-    assert_eq!(results[1].reason.as_deref(), Some("ServiceUnavailable"));
-    assert_eq!(results[2].reason.as_deref(), Some("BadDeviceToken"));
-    assert_eq!(results[3].reason.as_deref(), Some("transport_error"));
-    assert!(results.iter().all(|r| r.time == 1234));
+    {
+        let results = store.completed.lock().unwrap();
+        assert_eq!(
+            results.iter().map(|r| r.state.as_str()).collect::<Vec<_>>(),
+            ["accepted", "retry", "rejected", "retry"]
+        );
+        assert_eq!(results[0].apns_id.as_deref(), Some("apple-request"));
+        assert_eq!(results[1].reason.as_deref(), Some("ServiceUnavailable"));
+        assert_eq!(results[2].reason.as_deref(), Some("BadDeviceToken"));
+        assert_eq!(results[3].reason.as_deref(), Some("transport_error"));
+        assert!(results.iter().all(|r| r.time == 1234));
+    }
     assert_eq!(push.sends.lock().unwrap().len(), 4);
     assert_eq!(*store.claims.lock().unwrap(), vec![1234; 4]);
-    drop(results);
     assert!(
         !tick(&store, Some(&push), &FixedClock)
             .await
