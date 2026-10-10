@@ -9,6 +9,7 @@ import {
   GatewayError,
   MAX_BODY_BYTES,
   MAX_RESPONSE_BYTES,
+  ORIGIN_TIMEOUT_MS,
   canonicalRequest,
   extractCloudflareCertificate,
   extractLambdaCertificate,
@@ -70,6 +71,17 @@ function lambdaEvent({ cert = der, requestBody = body, path = "/mdm", method = "
     },
   };
 }
+
+test("origin deadline leaves response time within every SAM integration timeout", async () => {
+  const template = await readFile(new URL("../lambda/template.yaml", import.meta.url), "utf8");
+  const integrationTimeouts = [...template.matchAll(/^\s+TimeoutInMillis:\s+(\d+)\s*$/gm)]
+    .map((match) => Number(match[1]));
+  assert.ok(integrationTimeouts.length >= 2, "device and bootstrap integrations must define their deadlines");
+  assert.ok(ORIGIN_TIMEOUT_MS > 0);
+  for (const timeout of integrationTimeouts) {
+    assert.ok(timeout - ORIGIN_TIMEOUT_MS >= 5_000, "integration must retain at least five seconds to return the response");
+  }
+});
 
 test("canonical vector preserves raw path/query and binary digests", async () => {
   const vectorBody = base64ToBytes(golden.body_base64);

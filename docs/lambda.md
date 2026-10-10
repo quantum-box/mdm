@@ -55,6 +55,13 @@ API v2 and truststore settings. Set `MDM_GATEWAY_KEY` and `MDM_ORIGIN_URL`
 through the template's secret and parameter inputs, and configure the API
 Gateway custom domain truststore/mTLS before exposing the function.
 
+The shared gateway limits the complete origin fetch and response-body read to
+25 seconds. The SAM integrations allow 30 seconds, leaving five seconds for
+Lambda startup, validation, and response serialization before API Gateway
+terminates the request. Keep the origin deadline below the integration
+deadline when adapting this package to another provider. See the
+[HTTP API timeout quota](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-quotas.html).
+
 ## Why Lambda is not the engine runtime
 
 Lambda `/tmp` is temporary and belongs to one execution environment. It is not

@@ -17,7 +17,10 @@ export const MAX_CERTIFICATE_BYTES = 10 * 1024;
 // encoded body, headers, and response envelope remain below that limit.
 export const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 export const TIMESTAMP_SKEW_SECONDS = 30;
-export const ORIGIN_TIMEOUT_MS = 30_000;
+// API Gateway HTTP API integrations are capped at 30 seconds. Leave five
+// seconds for the adapter to turn an origin timeout into a provider response
+// and for the provider to transmit that response to the caller.
+export const ORIGIN_TIMEOUT_MS = 25_000;
 
 const textEncoder = new TextEncoder();
 const DEVICE_CERTIFICATE_PATHS = new Set(["/checkin", "/mdm"]);
