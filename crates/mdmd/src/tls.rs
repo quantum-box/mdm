@@ -1,11 +1,11 @@
 //! Native TLS and HTTP/1.1+HTTP/2 serving for the standalone binary.
 
 use crate::{
-    http::{App, AuthenticatedTlsPeer, router},
+    gateway::GatewayKey,
+    http::{App, AuthenticatedTlsPeer, router_with_gateway},
     storage,
 };
 use anyhow::{Context, Result, bail};
-use axum::Extension;
 use hyper_util::{
     rt::{TokioExecutor, TokioIo, TokioTimer},
     server::conn::auto::Builder as AutoBuilder,
@@ -109,6 +109,20 @@ pub async fn serve(
     key_path: &Path,
     shutdown: impl Future<Output = ()> + Send,
 ) -> Result<()> {
+    serve_with_gateway(listener, app, certificate_path, key_path, None, shutdown).await
+}
+
+/// Serves the application over native TLS and, when configured, the signed
+/// gateway envelope.  The gateway layer is applied inside each TLS connection
+/// so its authenticated peer extension supersedes the origin TLS peer.
+pub async fn serve_with_gateway(
+    listener: TcpListener,
+    app: App,
+    certificate_path: &Path,
+    key_path: &Path,
+    gateway_key: Option<GatewayKey>,
+    shutdown: impl Future<Output = ()> + Send,
+) -> Result<()> {
     let acceptor = Arc::new(build_acceptor(
         certificate_path,
         key_path,
@@ -128,7 +142,7 @@ pub async fn serve(
                 }
             }
             accepted = listener.accept() => {
-                let (stream, _peer): (TcpStream, SocketAddr) = accepted
+                let (stream, peer_address): (TcpStream, SocketAddr) = accepted
                     .context("accept TLS connection")?;
                 let permit = match connections.clone().try_acquire_owned() {
                     Ok(permit) => permit,
@@ -139,9 +153,10 @@ pub async fn serve(
                 };
                 let acceptor = acceptor.clone();
                 let app = app.clone();
+                let gateway_key = gateway_key.clone();
                 tasks.spawn(async move {
                     let _permit = permit;
-                    handle_connection(stream, acceptor, app).await;
+                    handle_connection(stream, peer_address, acceptor, app, gateway_key).await;
                 });
             }
         }
@@ -158,7 +173,13 @@ pub async fn serve(
     Ok(())
 }
 
-async fn handle_connection(stream: TcpStream, acceptor: Arc<SslAcceptor>, app: App) {
+async fn handle_connection(
+    stream: TcpStream,
+    peer_address: SocketAddr,
+    acceptor: Arc<SslAcceptor>,
+    app: App,
+    gateway_key: Option<GatewayKey>,
+) {
     let ssl = match Ssl::new(acceptor.context()) {
         Ok(ssl) => ssl,
         Err(_) => return,
@@ -202,7 +223,11 @@ async fn handle_connection(stream: TcpStream, acceptor: Arc<SslAcceptor>, app: A
             (Some(fingerprint), expires_at)
         }
     };
-    let application = router(app).layer(Extension(AuthenticatedTlsPeer(peer.0, peer.1)));
+    let application = router_with_gateway(
+        app,
+        gateway_key,
+        Some((AuthenticatedTlsPeer(peer.0, peer.1), peer_address)),
+    );
     let service = TowerToHyperService::new(application);
     let mut builder = AutoBuilder::new(TokioExecutor::new());
     builder

@@ -4,7 +4,8 @@ use mdm_protocol::CommandPayload;
 use mdmd::{
     apns::ApnsClient,
     config::Config,
-    http::{App, router},
+    gateway::GatewayKey,
+    http::{App, router_with_gateway},
     identity::Identity,
     storage::Store,
 };
@@ -139,27 +140,32 @@ enum Action {
 }
 #[derive(Args)]
 struct Serve {
-    #[arg(long, default_value = "data/mdm.sqlite")]
+    #[arg(long, default_value = "data/mdm.sqlite", env = "MDM_DATABASE")]
     database: PathBuf,
-    #[arg(long, default_value = "127.0.0.1:8080")]
+    #[arg(long, default_value = "127.0.0.1:8080", env = "MDM_BIND")]
     bind: SocketAddr,
     #[arg(long, env = "MDM_PUBLIC_URL")]
     public_url: String,
+    #[arg(long, env = "MDM_BOOTSTRAP_URL")]
+    bootstrap_url: Option<String>,
     #[arg(long, env = "MDM_TOPIC")]
     topic: String,
-    #[arg(long, default_value = "MDM")]
+    #[arg(long, default_value = "MDM", env = "MDM_ORGANIZATION")]
     organization: String,
-    #[arg(long, default_value = "data/ca.pem")]
+    #[arg(long, default_value = "data/ca.pem", env = "MDM_CA_CERT")]
     ca_cert: PathBuf,
-    #[arg(long, default_value = "data/ca-key.pem")]
+    #[arg(long, default_value = "data/ca-key.pem", env = "MDM_CA_KEY")]
     ca_key: PathBuf,
     #[arg(long, env = "MDM_APNS_IDENTITY")]
     apns_identity: Option<PathBuf>,
     #[arg(long, env = "MDM_READ_TOKEN", hide_env_values = true)]
     read_token: Option<String>,
     /// Trust certificate headers overwritten by the local TLS proxy. Read docs/nginx.conf.
-    #[arg(long)]
+    #[arg(long, env = "MDM_TRUST_PROXY")]
     trust_proxy: bool,
+    /// HMAC key file used by a public request gateway.
+    #[arg(long, env = "MDM_GATEWAY_KEY_FILE", hide_env_values = true)]
+    gateway_key_file: Option<PathBuf>,
     /// HTTPS certificate chain for the built-in TLS listener.
     #[arg(long, env = "MDM_TLS_CERT")]
     tls_cert: Option<PathBuf>,
@@ -423,6 +429,7 @@ async fn main() -> Result<()> {
                 database: args.database,
                 bind: args.bind,
                 public_url: args.public_url,
+                bootstrap_url: args.bootstrap_url,
                 topic: args.topic,
                 organization: args.organization,
                 ca_cert: args.ca_cert,
@@ -433,6 +440,7 @@ async fn main() -> Result<()> {
                     .context("set MDM_ADMIN_TOKEN (32 or more random characters)")?,
                 read_token: args.read_token,
                 trust_proxy: args.trust_proxy,
+                gateway_key_file: args.gateway_key_file,
                 tls_cert: args.tls_cert,
                 tls_key: args.tls_key,
             };
@@ -1092,6 +1100,11 @@ async fn main() -> Result<()> {
 
 async fn serve(config: Config) -> Result<()> {
     config.validate()?;
+    let gateway_key = config
+        .gateway_key_file
+        .as_ref()
+        .map(|path| GatewayKey::load(path))
+        .transpose()?;
     mdmd::apple::validate_configuration()?;
     let identity = Arc::new(Identity::load(&config.ca_cert, &config.ca_key)?);
     let apns = config
@@ -1121,11 +1134,15 @@ async fn serve(config: Config) -> Result<()> {
         let _ = shutdown_sender.send(true);
     };
     if let (Some(cert), Some(key)) = (&config.tls_cert, &config.tls_key) {
-        mdmd::tls::serve(listener, app, cert, key, shutdown).await?;
+        mdmd::tls::serve_with_gateway(listener, app, cert, key, gateway_key, shutdown).await?;
     } else {
-        axum::serve(listener, router(app))
-            .with_graceful_shutdown(shutdown)
-            .await?;
+        axum::serve(
+            listener,
+            router_with_gateway(app, gateway_key, None)
+                .into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(shutdown)
+        .await?;
     }
     let _ = stop.send(true);
     worker.await?;

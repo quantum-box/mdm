@@ -1,0 +1,304 @@
+# Copyright (c) 2026 quantum-box
+# SPDX-License-Identifier: MIT
+
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >-
+  Portable Apple MDM gateway for AWS Lambda. The durable Rust origin and its
+  SQLite/APNs worker remain outside Lambda.
+
+Parameters:
+  MdmOriginUrl:
+    Type: String
+    Description: Fixed HTTPS origin URL (scheme and host only; no path/query).
+    AllowedPattern: '^https://[^/\s]+/?$'
+    ConstraintDescription: Must be an HTTPS origin such as https://mdm-origin.example.
+  GatewaySecretArn:
+    Type: String
+    NoEcho: true
+    Description: Secrets Manager ARN whose raw SecretString is the shared 32-128 byte gateway key.
+  OriginAccessClientIdSecretArn:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Optional Secrets Manager ARN for CF_ACCESS_CLIENT_ID.
+  OriginAccessClientSecretSecretArn:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Optional Secrets Manager ARN for CF_ACCESS_CLIENT_SECRET.
+  DeviceDomainName:
+    Type: String
+    Default: ''
+    Description: Optional device custom domain, for example mdm.example.com.
+  DeviceCertificateArn:
+    Type: String
+    Default: ''
+    Description: ACM regional certificate ARN for the device custom domain.
+  DeviceTruststoreUri:
+    Type: String
+    Default: ''
+    Description: S3 URI of the device mTLS truststore, for example s3://bucket/ca.pem.
+  DeviceTruststoreVersion:
+    Type: String
+    Default: ''
+    Description: Optional version ID of the versioned device truststore object.
+  BootstrapDomainName:
+    Type: String
+    Default: ''
+    Description: Optional anonymous bootstrap custom domain for SCEP and ADE bootstrap.
+  BootstrapCertificateArn:
+    Type: String
+    Default: ''
+    Description: ACM regional certificate ARN for the bootstrap custom domain.
+  DisableExecuteApiEndpoint:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Set true only after at least one custom domain and DNS record are ready.
+
+Conditions:
+  HasAccessSecrets: !And
+    - !Not [!Equals [!Ref OriginAccessClientIdSecretArn, '']]
+    - !Not [!Equals [!Ref OriginAccessClientSecretSecretArn, '']]
+  HasDeviceTruststoreVersion: !Not [!Equals [!Ref DeviceTruststoreVersion, '']]
+  HasDeviceDomain: !And
+    - !Not [!Equals [!Ref DeviceDomainName, '']]
+    - !Not [!Equals [!Ref DeviceCertificateArn, '']]
+    - !Not [!Equals [!Ref DeviceTruststoreUri, '']]
+  HasBootstrapDomain: !And
+    - !Not [!Equals [!Ref BootstrapDomainName, '']]
+    - !Not [!Equals [!Ref BootstrapCertificateArn, '']]
+  DisableExecute: !Equals [!Ref DisableExecuteApiEndpoint, 'true']
+
+Rules:
+  AccessSecretPair:
+    Assertions:
+      - Assert: !Or
+          - !And
+            - !Equals [!Ref OriginAccessClientIdSecretArn, '']
+            - !Equals [!Ref OriginAccessClientSecretSecretArn, '']
+          - !And
+            - !Not [!Equals [!Ref OriginAccessClientIdSecretArn, '']]
+            - !Not [!Equals [!Ref OriginAccessClientSecretSecretArn, '']]
+        AssertDescription: Configure both origin Access secret ARNs or neither.
+  DeviceDomainBundle:
+    Assertions:
+      - Assert: !Or
+          - !And
+            - !Equals [!Ref DeviceDomainName, '']
+            - !Equals [!Ref DeviceCertificateArn, '']
+            - !Equals [!Ref DeviceTruststoreUri, '']
+          - !And
+            - !Not [!Equals [!Ref DeviceDomainName, '']]
+            - !Not [!Equals [!Ref DeviceCertificateArn, '']]
+            - !Not [!Equals [!Ref DeviceTruststoreUri, '']]
+        AssertDescription: Configure the device domain, certificate, and truststore together or leave all three empty.
+  DeviceTruststoreVersionRequiresDomain:
+    Assertions:
+      - Assert: !Or
+          - !Equals [!Ref DeviceTruststoreVersion, '']
+          - !And
+            - !Not [!Equals [!Ref DeviceDomainName, '']]
+            - !Not [!Equals [!Ref DeviceCertificateArn, '']]
+            - !Not [!Equals [!Ref DeviceTruststoreUri, '']]
+        AssertDescription: DeviceTruststoreVersion requires the complete device custom-domain configuration.
+  BootstrapDomainBundle:
+    Assertions:
+      - Assert: !Or
+          - !And
+            - !Equals [!Ref BootstrapDomainName, '']
+            - !Equals [!Ref BootstrapCertificateArn, '']
+          - !And
+            - !Not [!Equals [!Ref BootstrapDomainName, '']]
+            - !Not [!Equals [!Ref BootstrapCertificateArn, '']]
+        AssertDescription: Configure the bootstrap domain and certificate together or leave both empty.
+  DisableExecuteRequiresDomains:
+    Assertions:
+      - Assert: !Or
+          - !Equals [!Ref DisableExecuteApiEndpoint, 'false']
+          - !And
+            - !Not [!Equals [!Ref DeviceDomainName, '']]
+            - !Not [!Equals [!Ref DeviceCertificateArn, '']]
+            - !Not [!Equals [!Ref DeviceTruststoreUri, '']]
+            - !Not [!Equals [!Ref BootstrapDomainName, '']]
+            - !Not [!Equals [!Ref BootstrapCertificateArn, '']]
+        AssertDescription: DisableExecuteApiEndpoint=true requires both complete device and bootstrap custom-domain configurations.
+
+Resources:
+  GatewayFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      # The Makefile stages only this handler and the shared gateway module.
+      CodeUri: .
+      Handler: lambda/handler.handler
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      MemorySize: 256
+      Timeout: 35
+      Environment:
+        Variables:
+          MDM_GATEWAY_KEY: !Sub '{{resolve:secretsmanager:${GatewaySecretArn}:SecretString}}'
+          MDM_ORIGIN_URL: !Ref MdmOriginUrl
+          CF_ACCESS_CLIENT_ID: !If
+            - HasAccessSecrets
+            - !Sub '{{resolve:secretsmanager:${OriginAccessClientIdSecretArn}:SecretString}}'
+            - !Ref AWS::NoValue
+          CF_ACCESS_CLIENT_SECRET: !If
+            - HasAccessSecrets
+            - !Sub '{{resolve:secretsmanager:${OriginAccessClientSecretSecretArn}:SecretString}}'
+            - !Ref AWS::NoValue
+
+  DeviceApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${AWS::StackName}-device'
+      ProtocolType: HTTP
+      DisableExecuteApiEndpoint: !If [DisableExecute, true, false]
+
+  DeviceIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref DeviceApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GatewayFunction.Arn}/invocations'
+      IntegrationMethod: POST
+      PayloadFormatVersion: '2.0'
+      TimeoutInMillis: 30000
+
+  DeviceRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref DeviceApi
+      RouteKey: '$default'
+      Target: !Sub 'integrations/${DeviceIntegration}'
+
+  DeviceStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref DeviceApi
+      StageName: '$default'
+      AutoDeploy: true
+
+  DeviceInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref GatewayFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${DeviceApi}/*/*'
+
+  BootstrapApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${AWS::StackName}-bootstrap'
+      ProtocolType: HTTP
+      DisableExecuteApiEndpoint: !If [DisableExecute, true, false]
+
+  BootstrapIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref BootstrapApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GatewayFunction.Arn}/invocations'
+      IntegrationMethod: POST
+      PayloadFormatVersion: '2.0'
+      TimeoutInMillis: 30000
+
+  BootstrapRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BootstrapApi
+      RouteKey: '$default'
+      Target: !Sub 'integrations/${BootstrapIntegration}'
+
+  BootstrapStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref BootstrapApi
+      StageName: '$default'
+      AutoDeploy: true
+
+  BootstrapInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref GatewayFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BootstrapApi}/*/*'
+
+  DeviceDomain:
+    Condition: HasDeviceDomain
+    Type: AWS::ApiGatewayV2::DomainName
+    Properties:
+      DomainName: !Ref DeviceDomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref DeviceCertificateArn
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+      MutualTlsAuthentication:
+        TruststoreUri: !Ref DeviceTruststoreUri
+        TruststoreVersion: !If [HasDeviceTruststoreVersion, !Ref DeviceTruststoreVersion, !Ref AWS::NoValue]
+
+  DeviceMapping:
+    Condition: HasDeviceDomain
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Properties:
+      ApiId: !Ref DeviceApi
+      DomainName: !Ref DeviceDomain
+      Stage: !Ref DeviceStage
+
+  BootstrapDomain:
+    Condition: HasBootstrapDomain
+    Type: AWS::ApiGatewayV2::DomainName
+    Properties:
+      DomainName: !Ref BootstrapDomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref BootstrapCertificateArn
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  BootstrapMapping:
+    Condition: HasBootstrapDomain
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Properties:
+      ApiId: !Ref BootstrapApi
+      DomainName: !Ref BootstrapDomain
+      Stage: !Ref BootstrapStage
+
+Outputs:
+  LambdaFunctionArn:
+    Description: Gateway Lambda function ARN.
+    Value: !GetAtt GatewayFunction.Arn
+  DeviceExecuteApiUrl:
+    Description: Device API URL; use the custom domain when configured.
+    Value: !Sub 'https://${DeviceApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+  BootstrapExecuteApiUrl:
+    Description: Bootstrap API URL; use the separate anonymous custom domain when configured.
+    Value: !Sub 'https://${BootstrapApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+  DeviceCustomDomainUrl:
+    Condition: HasDeviceDomain
+    Description: Device custom domain; DNS must point at API Gateway's regional target.
+    Value: !Sub 'https://${DeviceDomainName}'
+  DeviceRegionalDomainName:
+    Condition: HasDeviceDomain
+    Description: API Gateway regional target for the device DNS alias.
+    Value: !GetAtt DeviceDomain.RegionalDomainName
+  DeviceRegionalHostedZoneId:
+    Condition: HasDeviceDomain
+    Description: Route 53 hosted zone ID for the device regional target.
+    Value: !GetAtt DeviceDomain.RegionalHostedZoneId
+  BootstrapCustomDomainUrl:
+    Condition: HasBootstrapDomain
+    Description: Anonymous bootstrap custom domain; DNS must point at API Gateway's regional target.
+    Value: !Sub 'https://${BootstrapDomainName}'
+  BootstrapRegionalDomainName:
+    Condition: HasBootstrapDomain
+    Description: API Gateway regional target for the bootstrap DNS alias.
+    Value: !GetAtt BootstrapDomain.RegionalDomainName
+  BootstrapRegionalHostedZoneId:
+    Condition: HasBootstrapDomain
+    Description: Route 53 hosted zone ID for the bootstrap regional target.
+    Value: !GetAtt BootstrapDomain.RegionalHostedZoneId

@@ -1,0 +1,75 @@
+name: mdm
+
+# This file is a deployment template, not a credential store. Populate the
+# secret paths below with files owned by the runtime and mode 0600/0444 as
+# appropriate; mdmd-entrypoint copies them into a private tmpfs before start.
+services:
+  mdmd:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${MDM_IMAGE:-mdm:local}
+    restart: unless-stopped
+    stop_grace_period: 30s
+    # One origin process owns the SQLite writer and notification outbox.
+    # There is intentionally no ports: entrypoint exposure is explicit.
+    environment:
+      MDM_PUBLIC_URL: ${MDM_PUBLIC_URL:?set MDM_PUBLIC_URL to the public Apple endpoint}
+      # Optional separate anonymous SCEP/ADE host for gateways that require
+      # client mTLS on the device host. Leave unset when one public host uses
+      # path-specific policies.
+      # MDM_BOOTSTRAP_URL: https://bootstrap.example.com
+      MDM_TOPIC: ${MDM_TOPIC:?set MDM_TOPIC to the exact Apple MDM Push topic}
+      MDM_ORGANIZATION: ${MDM_ORGANIZATION:-MDM}
+      MDM_DATABASE: /data/mdm.sqlite
+      MDM_BIND: 127.0.0.1:8443
+      # Native TLS health checks verify the origin certificate. Override the
+      # host/CA for the certificate used by the deployment; empty CA uses the
+      # Debian system trust store.
+      MDM_HEALTHCHECK_URL: ${MDM_HEALTHCHECK_URL:-https://mdm-origin.internal.example:8443/health}
+      MDM_HEALTHCHECK_CA: ${MDM_HEALTHCHECK_CA:-}
+      MDM_HEALTHCHECK_RESOLVE: ${MDM_HEALTHCHECK_RESOLVE:-mdm-origin.internal.example:8443:127.0.0.1}
+      MDM_CA_CERT: /run/secrets/ca.pem
+      MDM_CA_KEY: /run/secrets/ca-key.pem
+      MDM_TLS_CERT: /run/secrets/tls.pem
+      MDM_TLS_KEY: /run/secrets/tls-key.pem
+      MDM_APNS_IDENTITY: /run/secrets/apns.pem
+      MDM_ADMIN_TOKEN_FILE: /run/secrets/admin-token
+      MDM_READ_TOKEN_FILE: /run/secrets/read-token
+      # The built-in TLS listener authenticates device certificates. A
+      # trusted-proxy deployment must be configured deliberately instead.
+      MDM_TRUST_PROXY: "false"
+    extra_hosts:
+      - "mdm-origin.internal.example:127.0.0.1"
+    volumes:
+      - mdm-data:/data
+      - ./secrets:/run/secrets:ro
+    tmpfs:
+      - /run/mdmsecrets:uid=10001,gid=10001,mode=0700
+
+  # The sidecar shares the origin's network namespace, so it reaches the
+  # origin through 127.0.0.1. Enable only after the tunnel config and origin
+  # hostname certificate have been provisioned.
+  cloudflared:
+    profiles: [cloudflare]
+    # Override this with a reviewed digest in production. The dated fallback
+    # keeps the base origin usable without enabling the optional profile.
+    image: ${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:2025.9.1}
+    restart: unless-stopped
+    network_mode: service:mdmd
+    depends_on:
+      mdmd:
+        condition: service_healthy
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --config
+      - /etc/cloudflared/config.yml
+      - run
+    volumes:
+      - ./deploy/cloudflare/config.yml:/etc/cloudflared/config.yml:ro
+      - ./secrets:/run/secrets:ro
+
+volumes:
+  mdm-data:
+    name: ${MDM_DATA_VOLUME:-mdm-data}

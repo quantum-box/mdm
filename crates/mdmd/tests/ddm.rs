@@ -991,11 +991,11 @@ fn schema_one_database_migrates_to_ddm_schema_and_restores_legacy_rows() -> Resu
     let backup = directory.path().join("legacy-backup.sqlite");
     store.backup(&backup)?;
     let backup_info = validate_backup(&backup)?;
-    assert_eq!(backup_info.user_version, 3);
+    assert_eq!(backup_info.user_version, 4);
 
     let restored = directory.path().join("restored/legacy.sqlite");
     let restored_info = restore_database(&backup, &restored)?;
-    assert_eq!(restored_info.user_version, 3);
+    assert_eq!(restored_info.user_version, 4);
     let reopened = Store::open(&restored)?;
     let restored_enrollments = reopened.enrollments(None)?;
     assert_eq!(restored_enrollments.len(), 1);

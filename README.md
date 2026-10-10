@@ -32,6 +32,9 @@ command execution.
 - Separate DDM declarations, generation-specific assignments, synchronization,
   and status reports, with management API and CLI operations. The selected
   iPadOS foundation still requires physical-device acceptance.
+- Portable OCI origin, Cloudflare Worker and Lambda HTTP API v2 gateways with
+  shared signed forwarding, and asynchronous notification/storage/clock ports.
+  SQLite and APNs continue to run in the durable Rust origin.
 
 No existing MDM engine is wrapped or embedded. Redis, a message broker,
 Kubernetes, Tachyon, and business/tenant management are not required.
@@ -54,6 +57,11 @@ installation and set `OPENSSL_DIR` if the build cannot discover it.
 4. Start the backend using the example below.
 5. Enroll a test iPad using `mdmd enroll --output data/device.mobileconfig` and
    follow the [device checklist](docs/device-test.md).
+
+For a persistent OCI deployment, use the [deployment guide](docs/deployment.md).
+The [Cloudflare deployment notes](docs/cloudflare.md) and [Lambda gateway
+boundary](docs/lambda.md) describe the adapter limits; neither replaces the
+durable Rust origin or supplies physical-device acceptance.
 
 ```sh
 export MDM_ADMIN_TOKEN="$(openssl rand -hex 32)"
@@ -116,7 +124,8 @@ commit in one SQLite transaction. Dispatch is recorded before the HTTP reply is
 sent, so a crash cannot turn a potentially executed mutation into an automatic
 retry. Reenrollment revokes the former identity and isolates all old commands.
 
-CI runs formatting, workspace tests, Clippy, and a release build. For local work,
+CI runs formatting, workspace tests, Clippy, a release build, gateway tests,
+Worker bundle/SAM packaging checks, and a container startup/restart smoke. For local work,
 run only checks needed for the changed crate; see [contribution guidance](CONTRIBUTING.md).
 The [verification report](docs/verification.md) records local software checks,
 with physical-device acceptance still open.
@@ -128,4 +137,5 @@ See [DDM usage and API](docs/ddm.md) for declaration synchronization and status.
 - [API and CLI operations](docs/operations.md) and [operations API reference](docs/operations-api.md)
 - [Administrator UI](docs/admin.md), [ADE enrollment](docs/apple-enrollment.md), and [app distribution](docs/app-distribution.md)
 - [Certificate lifecycle](docs/certificates.md) and [supported scope](docs/support-matrix.md)
+- [Portable deployment](docs/deployment.md), [Cloudflare edge](docs/cloudflare.md), and [Lambda gateway](docs/lambda.md)
 - [Security reporting](SECURITY.md) and [MIT license](LICENSE)

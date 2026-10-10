@@ -1083,7 +1083,23 @@ pub struct EnrollmentProfile {
 /// Build an XML configuration profile containing root CA, SCEP, and MDM
 /// payloads for a device-channel enrollment.
 pub fn enrollment_profile(profile: &EnrollmentProfile) -> Result<Vec<u8>> {
+    enrollment_profile_with_bootstrap(profile, None)
+}
+
+/// Builds a profile with an optional anonymous HTTPS bootstrap origin.
+///
+/// Some hosts require a client certificate for the entire MDM hostname. SCEP
+/// cannot use that hostname before issuing the first device identity, so its
+/// endpoint may live on a separate origin. The MDM/check-in URLs stay unchanged.
+pub fn enrollment_profile_with_bootstrap(
+    profile: &EnrollmentProfile,
+    bootstrap_url: Option<&str>,
+) -> Result<Vec<u8>> {
     let public_url = validate_public_url(&profile.public_url)?;
+    let bootstrap_url = bootstrap_url
+        .map(validate_public_url)
+        .transpose()?
+        .unwrap_or_else(|| public_url.clone());
     validate_topic(&profile.topic)?;
     validate_text("enrollment_id", &profile.enrollment_id)?;
     validate_text("organization", &profile.organization)?;
@@ -1133,7 +1149,7 @@ pub fn enrollment_profile(profile: &EnrollmentProfile) -> Result<Vec<u8>> {
     root.insert("PayloadContent".into(), Value::Data(ca_certificate));
 
     let mut scep_content = Dictionary::new();
-    scep_content.insert("URL".into(), Value::String(format!("{public_url}/scep")));
+    scep_content.insert("URL".into(), Value::String(format!("{bootstrap_url}/scep")));
     scep_content.insert(
         "Subject".into(),
         Value::Array(vec![Value::Array(vec![Value::Array(vec![
@@ -1497,6 +1513,9 @@ fn validate_public_url(url: &str) -> Result<String> {
             .any(|character| character.is_whitespace() || character.is_control())
         || host.contains('?')
         || host.contains('#')
+        || host.contains('/')
+        || host.contains('@')
+        || host.contains('\\')
     {
         return Err(ProtocolError::InvalidEnrollmentProfile(
             "public_url must contain a valid https authority",

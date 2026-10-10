@@ -1,0 +1,12 @@
+{
+  "name": "mdm-cloudflare-gateway",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check src/index.mjs && node --check ../gateway/index.mjs && node --check ../lambda/handler.mjs",
+    "test": "node --test ../tests/gateway.test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.136.0"
+  }
+}

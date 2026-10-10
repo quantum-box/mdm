@@ -1,0 +1,13 @@
+[
+  {
+    "key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "timestamp": "1700000000",
+    "nonce": "1111111111111111111111111111111111111111111111111111111111111111",
+    "method": "PUT",
+    "target": "/mdm?x=a%2Bb&x=c",
+    "body_base64": "AP8qCg==",
+    "certificate_base64": "",
+    "canonical": "mdm-gateway-v1\n1700000000\n1111111111111111111111111111111111111111111111111111111111111111\nPUT\n/mdm?x=a%2Bb&x=c\nf23e2d13036d3970e6c634723e8cbe8fa5e21ec59880ff42f1bc9101eb34788e\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "signature": "ee83ecfcab2aaba7d2c30767244aa3d6380da6a11f29f1987deab38ceaec6b3d"
+  }
+]

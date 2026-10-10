@@ -238,7 +238,11 @@ async fn ade_profile(
         .remove("configuration_web_url");
     profile["url"] = json!(format!(
         "{}/ade/enroll",
-        app.config.public_url.trim_end_matches('/')
+        app.config
+            .bootstrap_url
+            .as_deref()
+            .unwrap_or(&app.config.public_url)
+            .trim_end_matches('/')
     ));
 
     profile["is_supervised"] = json!(true);
@@ -393,14 +397,17 @@ async fn ade_enroll(
         &hash,
         storage::now(),
         |id, challenge| {
-            Ok(mdm_protocol::enrollment_profile(&EnrollmentProfile {
-                public_url: app.config.public_url.trim_end_matches('/').to_owned(),
-                topic: app.config.topic.clone(),
-                challenge: challenge.into(),
-                enrollment_id: id.into(),
-                ca_certificate: app.identity.ca_der()?,
-                organization: app.config.organization.clone(),
-            })?)
+            Ok(mdm_protocol::enrollment_profile_with_bootstrap(
+                &EnrollmentProfile {
+                    public_url: app.config.public_url.trim_end_matches('/').to_owned(),
+                    topic: app.config.topic.clone(),
+                    challenge: challenge.into(),
+                    enrollment_id: id.into(),
+                    ca_certificate: app.identity.ca_der()?,
+                    organization: app.config.organization.clone(),
+                },
+                app.config.bootstrap_url.as_deref(),
+            )?)
         },
     )?;
     Ok((

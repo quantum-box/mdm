@@ -246,6 +246,12 @@ requires new enrollment profiles and device re-enrollment. APNs and HTTPS
 certificates can be rotated independently when their topic, hostname, and
 trust requirements remain unchanged.
 
+For the persistent OCI layout, secret-file handling, shutdown grace period,
+and encrypted backup runbook, see [Deployment](deployment.md). The Cloudflare
+edge and Lambda gateway boundaries are documented in
+[cloudflare.md](cloudflare.md) and [lambda.md](lambda.md); they do not make an
+ephemeral database suitable for the stateful origin.
+
 ## Declarative management
 
 Use [DDM operations](ddm.md) for enablement, declaration revisions, assignments,

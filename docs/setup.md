@@ -163,3 +163,13 @@ are recorded in [`mdm-protocol/docs/protocol-sources.md`](../crates/mdm-protocol
 The main Apple references are [MDM](https://developer.apple.com/documentation/devicemanagement/mdm),
 [Check-in](https://developer.apple.com/documentation/devicemanagement/check-in/),
 and [Sending MDM commands to a device](https://developer.apple.com/documentation/devicemanagement/sending-mdm-commands-to-a-device).
+
+## Container deployment
+
+The root [`Dockerfile`](../Dockerfile) and [`compose.yaml`](../compose.yaml)
+package the same single `mdmd` origin with persistent SQLite storage and
+private secret copies. Read [`deployment.md`](./deployment.md) before using
+Compose. A Cloudflare Tunnel or other gateway changes the certificate trust
+boundary; follow [`cloudflare.md`](./cloudflare.md) and keep `/scep`
+anonymous during bootstrap. Lambda is documented as a gateway adapter only in
+[`lambda.md`](./lambda.md); it is not a replacement for the stateful origin.
