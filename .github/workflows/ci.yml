@@ -14,7 +14,8 @@ concurrency:
 
 jobs:
   rust:
-    runs-on: ubuntu-latest
+    # Match the OpenSSL 3 ABI in the Debian Bookworm runtime image.
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -28,6 +29,34 @@ jobs:
         run: |
           node --check crates/mdmd/src/admin/admin.js
           node --test crates/mdmd/tests/admin-ui.mjs
+
+      - name: Check portable gateways and Cloudflare bundle
+        working-directory: deploy/cloudflare
+        run: |
+          npm ci
+          npm run check
+          npm test
+          npx wrangler deploy --dry-run --outdir /tmp/mdm-worker-bundle
+
+      - name: Set up AWS SAM
+        uses: aws-actions/setup-sam@v3
+        with:
+          use-installer: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate and package the Lambda adapter
+        env:
+          AWS_DEFAULT_REGION: us-east-1
+          SAM_CLI_TELEMETRY: '0'
+        run: |
+          sam validate --lint --template-file deploy/lambda/template.yaml
+          sam build --template-file deploy/lambda/template.yaml
+          node --input-type=module -e 'import {handler} from "./.aws-sam/build/GatewayFunction/lambda/handler.mjs"; const r = await handler({version:"2.0",rawPath:"/health",rawQueryString:"",requestContext:{http:{method:"GET"}}}); if(r.statusCode !== 200) process.exit(1);'
+
+      - name: Check container entrypoint syntax
+        run: |
+          sh -n deploy/docker/entrypoint.sh
+          sh -n deploy/docker/healthcheck.sh
 
       - name: Install OpenSSL build dependencies
         run: |
@@ -50,3 +79,9 @@ jobs:
 
       - name: Build mdmd release binary
         run: cargo build --release -p mdmd --locked
+
+      - name: Build portable runtime from the checked release binary
+        run: docker build --target ci-runtime -t mdm:ci .
+
+      - name: Verify container authentication and persistent state
+        run: node deploy/tests/container-smoke.mjs mdm:ci

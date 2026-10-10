@@ -176,7 +176,7 @@ impl Store {
                 tx.execute_batch(include_str!("../migrations/001_initial.sql"))?;
                 tx.commit()?;
             }
-            1..=3 => {}
+            1..=4 => {}
             _ => bail!("database schema is newer than this binary"),
         }
         if version < 2 {
@@ -187,6 +187,11 @@ impl Store {
         if version < 3 {
             let tx = connection.transaction()?;
             tx.execute_batch(include_str!("../migrations/003_operations.sql"))?;
+            tx.commit()?;
+        }
+        if version < 4 {
+            let tx = connection.transaction()?;
+            tx.execute_batch(include_str!("../migrations/004_gateway.sql"))?;
             tx.commit()?;
         }
         Ok(Self(Arc::new(Mutex::new(connection))))
@@ -200,6 +205,33 @@ impl Store {
         let result = action(&tx)?;
         tx.commit()?;
         Ok(result)
+    }
+
+    /// Atomically records a gateway nonce after removing expired entries.
+    ///
+    /// The immediate transaction serializes concurrent gateway requests, so a
+    /// nonce can only be accepted once across processes that share the
+    /// database.  A duplicate live nonce is returned as a generic conflict so
+    /// callers do not need to expose database constraint details.
+    pub fn claim_gateway_nonce(&self, nonce: &str, now: i64, expires_at: i64) -> Result<()> {
+        if nonce.is_empty() || expires_at <= now {
+            return Err(StoreError::InvalidInput.into());
+        }
+        self.with_tx(|tx| {
+            tx.execute("DELETE FROM gateway_nonces WHERE expires_at <= ?", [now])?;
+            match tx.execute(
+                "INSERT INTO gateway_nonces(nonce,expires_at) VALUES(?,?)",
+                params![nonce, expires_at],
+            ) {
+                Ok(_) => Ok(()),
+                Err(rusqlite::Error::SqliteFailure(error, _))
+                    if error.code == rusqlite::ErrorCode::ConstraintViolation =>
+                {
+                    Err(StoreError::Conflict.into())
+                }
+                Err(error) => Err(error.into()),
+            }
+        })
     }
 
     pub fn create_enrollment(&self, challenge: &str, time: i64) -> Result<String> {

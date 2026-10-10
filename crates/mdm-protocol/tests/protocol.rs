@@ -1,13 +1,85 @@
 use mdm_protocol::{
     ApplicationInstallSource, CheckIn, CommandPayload, DeclarationKind, DeclarativeEndpoint,
     DeviceResponse, EnrollmentProfile, ObliterationBehavior, OsInstallAction, OsUpdate,
-    OsUpdatePriority, ResponseStatus, encode_command, enrollment_profile, kiosk_profile,
-    parse_checkin, parse_declaration_items_response, parse_response, parse_status_report,
-    parse_tokens_response,
+    OsUpdatePriority, ResponseStatus, encode_command, enrollment_profile,
+    enrollment_profile_with_bootstrap, kiosk_profile, parse_checkin,
+    parse_declaration_items_response, parse_response, parse_status_report, parse_tokens_response,
 };
 use plist::Value;
 
 const UDID: &str = "00000000-0000-0000-0000-000000000001";
+
+#[test]
+fn enrollment_can_bootstrap_without_a_certificate_on_a_separate_origin() {
+    let profile = EnrollmentProfile {
+        public_url: "https://devices.example.test/".into(),
+        topic: "com.apple.mgmt.test".into(),
+        challenge: "enrollment-challenge".into(),
+        enrollment_id: "enrollment-001".into(),
+        ca_certificate: b"DER-CERTIFICATE".to_vec(),
+        organization: "Example Org".into(),
+    };
+    for bootstrap in [None, Some("https://bootstrap.example.test/")] {
+        let bytes = enrollment_profile_with_bootstrap(&profile, bootstrap).unwrap();
+        let root = Value::from_reader(std::io::Cursor::new(bytes)).unwrap();
+        let contents = root.as_dictionary().unwrap()["PayloadContent"]
+            .as_array()
+            .unwrap();
+        let scep = contents[1].as_dictionary().unwrap()["PayloadContent"]
+            .as_dictionary()
+            .unwrap();
+        assert_eq!(
+            scep["URL"].as_string().unwrap(),
+            if bootstrap.is_some() {
+                "https://bootstrap.example.test/scep"
+            } else {
+                "https://devices.example.test/scep"
+            }
+        );
+        assert_eq!(
+            scep["Challenge"].as_string().unwrap(),
+            "enrollment-challenge"
+        );
+        let mdm = contents[2].as_dictionary().unwrap();
+        assert_eq!(
+            mdm["ServerURL"].as_string().unwrap(),
+            "https://devices.example.test/mdm"
+        );
+        assert_eq!(
+            mdm["CheckInURL"].as_string().unwrap(),
+            "https://devices.example.test/checkin"
+        );
+        assert_eq!(
+            mdm["IdentityCertificateUUID"],
+            contents[1].as_dictionary().unwrap()["PayloadUUID"]
+        );
+    }
+}
+
+#[test]
+fn bootstrap_origin_rejects_credentials_paths_and_insecure_urls() {
+    let profile = EnrollmentProfile {
+        public_url: "https://devices.example.test".into(),
+        topic: "com.apple.mgmt.test".into(),
+        challenge: "challenge".into(),
+        enrollment_id: "enrollment".into(),
+        ca_certificate: b"DER-CERTIFICATE".to_vec(),
+        organization: "Example Org".into(),
+    };
+    for url in [
+        "http://bootstrap.example.test",
+        "https://user:password@bootstrap.example.test",
+        "https://bootstrap.example.test/path",
+        "https://bootstrap.example.test?token=secret",
+        "https://bootstrap.example.test#fragment",
+        "https://bootstrap.example.test\\other",
+    ] {
+        assert!(
+            enrollment_profile_with_bootstrap(&profile, Some(url)).is_err(),
+            "accepted {url}"
+        );
+    }
+}
 
 #[test]
 fn parses_authenticate_fixture() {

@@ -1,12 +1,13 @@
 use crate::{
     config::Config,
+    gateway::GatewayKey,
     identity::Identity,
     storage::{self, IssuedCertificate, Store, StoreError},
 };
 use axum::{
     Extension, Json, Router,
     body::Bytes,
-    extract::{DefaultBodyLimit, Path, Query, State},
+    extract::{ConnectInfo, DefaultBodyLimit, Path, Query, State},
     http::{HeaderMap, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -16,7 +17,10 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use mdm_protocol::{CheckIn, CommandPayload, EnrollmentProfile};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use std::sync::{Arc, LazyLock};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, LazyLock},
+};
 use subtle::ConstantTimeEq;
 
 #[derive(Clone)]
@@ -61,7 +65,21 @@ static SCEP_SLOTS: LazyLock<Arc<tokio::sync::Semaphore>> =
     LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(4)));
 
 pub fn router(app: App) -> Router {
-    operations::routes(
+    router_with_gateway(app, None, None)
+}
+
+/// Builds the application router, optionally authenticating requests signed by
+/// the public gateway.  A native TLS peer is installed before the gateway
+/// layer; the gateway layer deliberately overwrites that extension so an
+/// origin TLS connection cannot be confused with the public device identity.
+pub fn router_with_gateway(
+    app: App,
+    gateway_key: Option<GatewayKey>,
+    native_peer: Option<(AuthenticatedTlsPeer, SocketAddr)>,
+) -> Router {
+    let store = app.store.clone();
+    let identity = app.identity.clone();
+    let mut router = operations::routes(
         Router::new()
             .route(
                 "/health",
@@ -93,7 +111,19 @@ pub fn router(app: App) -> Router {
     )
     .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
     .layer(middleware::from_fn(no_store))
-    .with_state(app)
+    .with_state(app);
+    if let Some(key) = gateway_key {
+        // Keep the gateway inside the connection metadata layers.  That lets
+        // it observe ConnectInfo for the local health exception, while its
+        // peer extension is the final identity seen by handlers.
+        router = crate::gateway::attach(router, key, store, identity);
+    }
+    if let Some((peer, address)) = native_peer {
+        router = router
+            .layer(Extension(peer))
+            .layer(Extension(ConnectInfo(address)));
+    }
+    router
 }
 async fn no_store(request: axum::extract::Request, next: Next) -> Response {
     let mut response = next.run(request).await;
@@ -348,14 +378,17 @@ async fn enroll(State(app): State<App>, headers: HeaderMap) -> ApiResult<Json<se
     authorize(&app, &headers, true)?;
     let challenge = hex::encode(rand::random::<[u8; 32]>());
     let id = app.store.create_enrollment(&challenge, storage::now())?;
-    let profile = mdm_protocol::enrollment_profile(&EnrollmentProfile {
-        public_url: app.config.public_url.trim_end_matches('/').to_owned(),
-        topic: app.config.topic.clone(),
-        challenge,
-        enrollment_id: id.clone(),
-        ca_certificate: app.identity.ca_der()?,
-        organization: app.config.organization.clone(),
-    })
+    let profile = mdm_protocol::enrollment_profile_with_bootstrap(
+        &EnrollmentProfile {
+            public_url: app.config.public_url.trim_end_matches('/').to_owned(),
+            topic: app.config.topic.clone(),
+            challenge,
+            enrollment_id: id.clone(),
+            ca_certificate: app.identity.ca_der()?,
+            organization: app.config.organization.clone(),
+        },
+        app.config.bootstrap_url.as_deref(),
+    )
     .map_err(|_| {
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,

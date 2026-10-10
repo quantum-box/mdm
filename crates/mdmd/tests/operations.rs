@@ -746,7 +746,7 @@ fn operation_rows_survive_schema_three_backup_and_restore() -> Result<()> {
 
     store.backup(&backup)?;
     let info = validate_backup(&backup)?;
-    assert_eq!(info.user_version, 3);
+    assert_eq!(info.user_version, 4);
     assert_eq!(restore_database(&backup, &restored)?, info);
     let restored_store = Store::open(&restored)?;
     assert_eq!(restored_store.ade_devices()?.len(), 1);

@@ -1,0 +1,11 @@
+name: mdm
+
+# Optional signed Worker/Lambda gateway overlay. Use this file together with
+# compose.yaml when the public edge adapter is enabled:
+#   docker compose -f compose.yaml -f compose.gateway.yaml up -d mdmd
+# The base file already mounts ./secrets read-only; the entrypoint copies this
+# key into its private 0600 secret directory before starting mdmd.
+services:
+  mdmd:
+    environment:
+      MDM_GATEWAY_KEY_FILE: /run/secrets/gateway-key

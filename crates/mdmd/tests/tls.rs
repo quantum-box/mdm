@@ -221,6 +221,7 @@ fn fixture() -> Result<Fixture> {
         database,
         bind: SocketAddr::from(([127, 0, 0, 1], 0)),
         public_url: "https://localhost".into(),
+        bootstrap_url: None,
         topic: "com.apple.mgmt.test".into(),
         organization: "TLS Test".into(),
         ca_cert: ca_certificate_path,
@@ -229,6 +230,7 @@ fn fixture() -> Result<Fixture> {
         admin_token: ADMIN_TOKEN.into(),
         read_token: None,
         trust_proxy: false,
+        gateway_key_file: None,
         tls_cert: Some(server_certificate_path.clone()),
         tls_key: Some(server_key_path.clone()),
     };

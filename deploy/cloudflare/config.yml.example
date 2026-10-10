@@ -1,0 +1,25 @@
+# Copy this file to deploy/cloudflare/config.yml and replace every example
+# value. Keep this file outside the image if the tunnel credentials are secret.
+# Pin the cloudflared image independently in compose.yaml.
+tunnel: REPLACE_WITH_TUNNEL_UUID
+credentials-file: /run/secrets/cloudflared-credentials.json
+no-autoupdate: true
+
+ingress:
+  # This is the private Tunnel/Access hostname used by the origin path. The
+  # Apple-facing Worker hostname (for example mdm.example.com) is configured
+  # separately in wrangler.jsonc and must not be reused here accidentally.
+  - hostname: mdm-origin.example.com
+    # This Tunnel/Access hostname is distinct from the TLS name sent to the
+    # origin below. The public Apple URL remains the Worker hostname above.
+    service: https://127.0.0.1:8443
+    originRequest:
+      connectTimeout: 10s
+      originServerName: mdm-origin.internal.example
+      httpHostHeader: mdm-origin.internal.example
+      # The mdmd certificate must contain this originServerName. Use a private
+      # origin CA only when the certificate is not signed
+      # by a public CA. Never replace this with noTLSVerify: true.
+      caPool: /run/secrets/mdm-origin-ca.pem
+      noTLSVerify: false
+  - service: http_status:404

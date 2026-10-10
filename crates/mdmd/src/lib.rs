@@ -1,6 +1,7 @@
 pub mod apns;
 pub mod apple;
 pub mod config;
+pub mod gateway;
 pub mod http;
 pub mod identity;
 pub mod recovery;

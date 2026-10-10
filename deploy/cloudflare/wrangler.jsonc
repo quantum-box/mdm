@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "mdm-gateway",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-10-10",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "mdm.example.com",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "MDM_ORIGIN_URL": "https://mdm-origin.example.com"
+  },
+  "secrets": {
+    "required": ["MDM_GATEWAY_KEY"]
+  }
+}

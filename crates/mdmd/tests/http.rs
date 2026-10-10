@@ -46,6 +46,7 @@ fn test_app() -> TestApp {
         database: database.clone(),
         bind: SocketAddr::from(([127, 0, 0, 1], 8080)),
         public_url: "https://mdm.example.test".into(),
+        bootstrap_url: None,
         topic: "com.apple.mgmt.test".into(),
         organization: "Test Organization".into(),
         ca_cert: ca_cert.clone(),
@@ -54,6 +55,7 @@ fn test_app() -> TestApp {
         admin_token: ADMIN_TOKEN.into(),
         read_token: Some(READ_TOKEN.into()),
         trust_proxy: true,
+        gateway_key_file: None,
         tls_cert: None,
         tls_key: None,
     };
@@ -76,6 +78,7 @@ fn validation_config(directory: &TempDir) -> Config {
         database: directory.path().join("mdm.sqlite"),
         bind: SocketAddr::from(([127, 0, 0, 1], 8080)),
         public_url: "https://mdm.example.test".into(),
+        bootstrap_url: None,
         topic: "com.apple.mgmt.test".into(),
         organization: "Test Organization".into(),
         ca_cert: directory.path().join("ca.pem"),
@@ -84,6 +87,7 @@ fn validation_config(directory: &TempDir) -> Config {
         admin_token: ADMIN_TOKEN.into(),
         read_token: Some(READ_TOKEN.into()),
         trust_proxy: true,
+        gateway_key_file: None,
         tls_cert: None,
         tls_key: None,
     }

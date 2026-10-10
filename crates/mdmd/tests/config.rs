@@ -16,6 +16,7 @@ fn config(
         database: PathBuf::from("data/mdm.sqlite"),
         bind,
         public_url: "https://mdm.example.test".to_owned(),
+        bootstrap_url: None,
         topic: "com.apple.mgmt.test".to_owned(),
         organization: "Test Organization".to_owned(),
         ca_cert: PathBuf::from("data/ca.pem"),
@@ -24,6 +25,7 @@ fn config(
         admin_token: ADMIN_TOKEN.to_owned(),
         read_token: None,
         trust_proxy,
+        gateway_key_file: None,
         tls_cert: tls_cert.map(PathBuf::from),
         tls_key: tls_key.map(PathBuf::from),
     }
@@ -68,4 +70,42 @@ fn built_in_tls_and_proxy_header_trust_cannot_be_combined() {
             .validate()
             .is_err()
     );
+}
+
+#[test]
+fn gateway_and_proxy_header_trust_cannot_be_combined() {
+    let mut value = config(SocketAddr::from(([127, 0, 0, 1], 8080)), None, None, true);
+    value.gateway_key_file = Some(PathBuf::from("gateway.key"));
+    assert!(value.validate().is_err());
+}
+
+#[test]
+fn bootstrap_url_must_be_an_https_origin() {
+    let mut value = config(SocketAddr::from(([127, 0, 0, 1], 8080)), None, None, false);
+    value.bootstrap_url = Some("http://bootstrap.example.test".to_owned());
+    assert!(value.validate().is_err());
+    value.bootstrap_url = Some("https://bootstrap.example.test/ade".to_owned());
+    assert!(value.validate().is_err());
+    value.bootstrap_url = Some("https://bootstrap.example.test".to_owned());
+    assert!(value.validate().is_ok());
+}
+
+#[test]
+fn origin_validation_rejects_paths_and_controls_before_url_normalization() {
+    for url in [
+        "https://bootstrap.example.test/a/../",
+        "https://bootstrap.example.test\\",
+        "https://bootstrap.example.test\n",
+        "https://user@bootstrap.example.test",
+    ] {
+        let mut value = config(SocketAddr::from(([127, 0, 0, 1], 8080)), None, None, false);
+        value.public_url = url.into();
+        assert!(value.validate().is_err(), "invalid public origin: {url:?}");
+        value.public_url = "https://mdm.example.test".into();
+        value.bootstrap_url = Some(url.into());
+        assert!(
+            value.validate().is_err(),
+            "invalid bootstrap origin: {url:?}"
+        );
+    }
 }

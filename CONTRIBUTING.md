@@ -30,6 +30,11 @@ cargo test -p mdm-protocol
 For console changes, run `node --test crates/mdmd/tests/admin-ui.mjs`
 without compiling Rust.
 
+For deployment adapters, run `npm ci`, `npm run check`, and `npm test` under
+`deploy/cloudflare`. The shared tests cover both Worker and Lambda. CI validates
+the Worker bundle, SAM artifact, and Docker runtime using the existing Linux
+release binary; a local Docker build is not required for each Rust change.
+
 For changes under `mdmd`, run the focused package tests when practical. CI
 runs the complete workspace test, clippy, and release build:
 
