@@ -54,7 +54,7 @@ services:
     profiles: [cloudflare]
     # Override this with a reviewed digest in production. The dated fallback
     # keeps the base origin usable without enabling the optional profile.
-    image: ${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:2025.9.1}
+    image: ${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:2026.11.0}
     restart: unless-stopped
     network_mode: service:mdmd
     depends_on:
